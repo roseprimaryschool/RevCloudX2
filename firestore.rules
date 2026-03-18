@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - displayName: string (optional)
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // Collection: decks
+    // Document ID: {deckId}
+    // Fields:
+    //   - id: string (required)
+    //   - userId: string (required, immutable)
+    //   - name: string (required, 1-100 chars)
+    //   - description: string (optional, 0-500 chars)
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // Collection: flashcards
+    // Document ID: {flashcardId}
+    // Fields:
+    //   - id: string (required)
+    //   - userId: string (required, immutable)
+    //   - deckId: string (required)
+    //   - front: string (required, 1-2000 chars)
+    //   - back: string (required, 1-2000 chars)
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+    
+    function uidNotModified() {
+      return !('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function isValidString(field, minLen, maxLen) {
+      return request.resource.data[field] is string && 
+             request.resource.data[field].size() >= minLen && 
+             request.resource.data[field].size() <= maxLen;
+    }
+    
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) || 
+             (request.resource.data[field] is string && 
+              request.resource.data[field].size() >= minLen && 
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    // Domain Validators
+    function isValidUser() {
+      return hasRequiredFields(['uid', 'email', 'createdAt']) &&
+             request.resource.data.uid is string &&
+             request.resource.data.email is string &&
+             request.resource.data.createdAt is timestamp &&
+             isValidOptionalString('displayName', 0, 100);
+    }
+
+    function isValidDeck() {
+      return hasRequiredFields(['id', 'userId', 'name', 'createdAt']) &&
+             request.resource.data.id is string &&
+             request.resource.data.userId is string &&
+             isValidString('name', 1, 100) &&
+             isValidOptionalString('description', 0, 500) &&
+             request.resource.data.createdAt is timestamp;
+    }
+
+    function isValidFlashcard() {
+      return hasRequiredFields(['id', 'userId', 'deckId', 'front', 'back', 'createdAt']) &&
+             request.resource.data.id is string &&
+             request.resource.data.userId is string &&
+             request.resource.data.deckId is string &&
+             isValidString('front', 1, 2000) &&
+             isValidString('back', 1, 2000) &&
+             request.resource.data.createdAt is timestamp;
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser() && request.resource.data.uid == userId;
+      allow update: if isOwner(userId) && isValidUser() && request.resource.data.uid == resource.data.uid && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isOwner(userId);
+    }
+
+    match /decks/{deckId} {
+      allow read: if isDocOwner() || (isAuthenticated() && request.resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidDeck() && request.resource.data.userId == request.auth.uid;
+      allow update: if isDocOwner() && isValidDeck() && uidNotModified() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+
+    match /flashcards/{flashcardId} {
+      allow read: if isDocOwner() || (isAuthenticated() && request.resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidFlashcard() && request.resource.data.userId == request.auth.uid;
+      allow update: if isDocOwner() && isValidFlashcard() && uidNotModified() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+  }
+}

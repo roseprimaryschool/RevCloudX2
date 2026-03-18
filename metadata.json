@@ -1,0 +1,5 @@
+{
+  "name": "RevCloud",
+  "description": "A responsive revision website with cloud-synced flashcards using Firebase Authentication and Firestore.",
+  "requestFramePermissions": []
+}
